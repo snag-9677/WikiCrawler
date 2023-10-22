@@ -4,8 +4,14 @@ import re
 
 class ScrapePageRegex:
     
-    def __init__(self):
-        pass
+    def __init__(self, request_session=None):
+        
+        self.self_started_session = False
+        self.session = request_session
+        
+        if self.session is None:
+            self.session = requests.Session()
+            self.self_started_session = True
     
     def load_page(self, page_link:str):
         """Load the page
@@ -20,7 +26,12 @@ class ScrapePageRegex:
         str
             The page text
         """
-        return requests.get(page_link).text
+        # return requests.get(page_link).text
+        txt = self.session.get(page_link).text
+        if self.self_started_session:
+            self.session.close()
+        return txt
+        
     
     
     def find_in_html(self, regex_pattern:str, page:str):
