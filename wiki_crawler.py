@@ -1,6 +1,7 @@
 import concurrent.futures as cf
 import os
 import pickle
+import warnings
 
 from web_scrape import ScrapePageRegex as ScrapePage
 
@@ -11,6 +12,7 @@ class WikiCrawler:
         starting_url:str="https://en.wikipedia.org/wiki/Wikipedia", 
         pickle_dir:str="wiki_pickle", 
         request_session = None,
+        queue:list=[],
         log_results_after_n_nodes_scanned:int=100,
         num_workers:int=1
     ) -> None:
@@ -36,8 +38,20 @@ class WikiCrawler:
         self.errors = {}
         
         # RAM Storage
-        self.queue = []
-        self.queue.append(starting_url)
+        self.queue = queue
+        if not isinstance(self.queue, list):
+            raise TypeError(f"queue must be a list. Got {type(self.queue)}")    
+        if not len(self.queue):
+            self.queue.append(starting_url)
+        else:
+            # Check if queue is valid
+            for url in self.queue.copy():
+                if not isinstance(url, str):
+                    raise TypeError(f"queue must be a list of strings. Got {type(url)}")
+                if not url.startswith("https://en.wikipedia.org/wiki/"):
+                    # Remove invalid url and warn
+                    warnings.warn(f"Invalid URL in queue: {url}. Removing from queue.")
+                    self.queue.remove(url)
         
         # Params
         self.starting_url = starting_url
@@ -93,6 +107,7 @@ class WikiCrawler:
         pickle.dump(self.graph, open(f"{self.pickle_dir}/graph_{self.pickle_counter}.pkl", "wb"))
         pickle.dump(self.nodes, open(f"{self.pickle_dir}/nodes_{self.pickle_counter}.pkl", "wb"))
         pickle.dump(self.errors, open(f"{self.pickle_dir}/errors_{self.pickle_counter}.pkl", "wb"))
+        pickle.dump(self.queue, open(f"{self.pickle_dir}/queue_{self.pickle_counter}.pkl", "wb"))
         self.pickle_counter += 1
          
     
