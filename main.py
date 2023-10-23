@@ -9,7 +9,7 @@ pickle_dir = "wiki_pickle"
 
 # If arg passed, use that as the number of pages to crawl. Default to 1000
 if len(sys.argv) > 1:
-    num_pages_to_crawl = int(sys.argv[0])
+    num_pages_to_crawl = int(sys.argv[1])
 else:
     num_pages_to_crawl = 1000
 
