@@ -1,11 +1,17 @@
 from wiki_crawler import WikiCrawler
 import time
 import requests
+import sys
 # Create a crawler object
 
 starting_url = "https://en.wikipedia.org/wiki/Wikipedia"
 pickle_dir = "wiki_pickle"
-num_pages_to_crawl = 1000
+
+# If arg passed, use that as the number of pages to crawl. Default to 1000
+if len(sys.argv) > 1:
+    num_pages_to_crawl = int(sys.argv[0])
+else:
+    num_pages_to_crawl = 1000
 
 session = requests.Session()
 wc = WikiCrawler(
