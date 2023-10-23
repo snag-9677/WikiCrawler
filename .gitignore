@@ -1,0 +1,4 @@
+wiki_pickle/
+__pycache__/
+*.pyc
+*.pkl

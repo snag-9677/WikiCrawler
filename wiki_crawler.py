@@ -2,6 +2,8 @@ import concurrent.futures as cf
 import os
 import pickle
 import warnings
+from collections import abc
+import time
 
 from web_scrape import ScrapePageRegex as ScrapePage
 
@@ -22,7 +24,7 @@ class WikiCrawler:
         
         # Pickle Settings 
         self.pickle_dir = pickle_dir
-        self.pickle_limit = 100_000
+        self.pickle_limit = 1_000
         self.pickle_counter = 0
         
         # Web Scraping Object
@@ -31,6 +33,7 @@ class WikiCrawler:
         # Storage
         self.id_counter = 0
         self.url_to_id = {}
+        self.visited_urls = set()
         
         self.graph = {} # {id0: [id1, id2, id3]}
         self.nodes = {} # {id0: {"url": url, "data": data}}
@@ -38,10 +41,10 @@ class WikiCrawler:
         self.errors = {}
         
         # RAM Storage
+        if not isinstance(queue, abc.MutableSequence):
+            raise TypeError(f"queue must be a list. Got {type(queue)}")    
         self.queue = queue
-        if not isinstance(self.queue, list):
-            raise TypeError(f"queue must be a list. Got {type(self.queue)}")    
-        if not len(self.queue):
+        if not self.queue:
             self.queue.append(starting_url)
         else:
             # Check if queue is valid
@@ -58,44 +61,46 @@ class WikiCrawler:
         self.log_results_after_n_nodes_scanned = log_results_after_n_nodes_scanned
         self.num_workers = num_workers
 
+        # To keep track of time
+        self.t = time.time()
         
+
     def _crawl_page(self, url):
         """
         Crawl a single page and add to graph and nodes.
-        
+
         Args:
             url (str): URL to crawl
-            
+
         Returns:
             _id (int): ID of crawled page
         """
-        if url in self.url_to_id.keys() and self.url_to_id[url] in self.graph.keys():
+        if url in self.visited_urls:
             return
-        
+
         txt = self.s.load_page(url)
         links = self.s.find_links(txt)
-        
-        if len(links) == 0:
+
+        if not links:
             return
-        
+
         _id = self.id_counter
         self.id_counter += 1
-        
+
         self.url_to_id[url] = _id
-        
+        self.visited_urls.add(url)
 
         self.nodes[_id] = {"url": url, "data": self.s.find_data_block(txt)}
-        
+
         for link in links:
-            if not link in self.url_to_id:
-            
+            if link not in self.url_to_id:
                 self.url_to_id[link] = self.id_counter
                 self.id_counter += 1
-            
+
             self.graph[_id] = self.graph.get(_id, []) + [self.url_to_id[link]]
-                
-            self.queue.append(link)
-            
+
+        self.queue.extend(links)
+
         return _id
     
     
@@ -120,7 +125,8 @@ class WikiCrawler:
         Pickles progress every self.pickle_limit pages.
         """
         if len(self.nodes) % self.log_results_after_n_nodes_scanned == 0:
-            print(f"Progress:\nPages in Queue (past and current) {self.id_counter}\nPages Scanned: {len(self.nodes)}\n===================================")
+            print(f"Progress:\nPages in Queue (past and current) {self.id_counter}\nPages Scanned: {len(self.nodes)}\n===================================\nTime: {time.time() - self.t:.2f}s\n")
+            self.t = time.time()
         if len(self.nodes) % self.pickle_limit == 0:
             self.pickle_progress()
         
@@ -139,25 +145,20 @@ class WikiCrawler:
             None
         """
         # Multiprocessing
-        with cf.ThreadPoolExecutor(max_workers=self.num_workers) as executor:
+        with cf.ProcessPoolExecutor(max_workers=self.num_workers) as executor:
             while len(self.nodes) < max_pages:
-                # If queue is empty, wait for all processes to finish and check again
-                if len(self.queue) == 0:
+                if not self.queue:
                     print("Waiting for processes to finish...")
                     cf.wait(executor, timeout=None, return_when=cf.ALL_COMPLETED)
-                    # If queue is still empty, break
                     if len(self.queue) == 0:
                         break
-                    
-                # If queue is not empty, pop first url and crawl
-                url = self.queue.pop(0)
-                try:
-                    self._crawl_page(url)
-                except Exception as e:
-                    self.errors["url"] = e
-                    continue
-                self.log_results()
-                
+
+                # Using multiprocessing within the thread
+                with cf.ThreadPoolExecutor() as process_executor:
+                    url = self.queue.pop(0)
+                    future = process_executor.submit(self._crawl_page, url)
+                    future.add_done_callback(lambda _: self.log_results())
+
         # Pickle final results
         self.pickle_progress()
 
