@@ -7,6 +7,97 @@ import time
 
 from web_scrape import ScrapePageRegex as ScrapePage
 
+
+class ArhivedWikiCrawler:
+    
+    def __init__(
+        self,
+        pickle_dir:str="wiki_pickle",
+        error_pkl_name:str="errors_0.pkl",
+        graph_pkl_name:str="graph_0.pkl",
+        nodes_pkl_name:str="nodes_0.pkl",
+        queue_pkl_name:str="queue_0.pkl",
+    ):
+        
+        if not os.path.exists(pickle_dir):
+            raise FileNotFoundError(f"{pickle_dir} does not exist.")
+        
+        self.errors = self.open_and_load_pkl(f"{pickle_dir}/{error_pkl_name}")
+        self.check_valid_errors(self.errors)
+        
+        self.graph = self.open_and_load_pkl(f"{pickle_dir}/{graph_pkl_name}")
+        self.check_valid_graph(self.graph)
+        
+        self.nodes = self.open_and_load_pkl(f"{pickle_dir}/{nodes_pkl_name}")
+        self.check_valid_nodes(self.nodes)
+        
+        self.queue = self.open_and_load_pkl(f"{pickle_dir}/{queue_pkl_name}")
+        self.check_valid_queue(self.queue)
+        
+        
+        
+    def open_and_load_pkl(self, path):
+        """
+        Open pickle directory. Raise error if path does not exist.
+        """
+        if not os.path.exists(f"{path}"):
+            raise FileNotFoundError(f"{path} does not exist.")
+        
+        with open(f"{path}", "rb") as f:
+            try:
+                file = pickle.load(f)
+            except Exception as E:
+                raise Exception(f"Error loading {path}. {E}")
+        
+        return file
+    
+    
+    def check_valid_graph(self):
+        # Check graph is valid: Dict[str,List]
+        if not isinstance(self.graph, dict):
+            raise TypeError(f"graph must be a dict. Got {type(self.graph)}")
+        for k,v in self.graph.items():
+            if not isinstance(k, str):
+                raise TypeError(f"graph keys must be strings. Got {type(k)}")
+            if not isinstance(v, list):
+                raise TypeError(f"graph values must be lists. Got {type(v)}")
+            
+    
+    def check_valid_nodes(self):
+        # Check nodes is valid: Dict[str,str] (url or json)
+        if not isinstance(self.nodes, dict):
+            raise TypeError(f"nodes must be a dict. Got {type(self.nodes)}")
+        for k,v in self.nodes.items():
+            if not isinstance(k, str):
+                raise TypeError(f"nodes keys must be strings. Got {type(k)}")
+            if not isinstance(v, str):
+                raise TypeError(f"nodes values must be sre (url or json). Got {type(v)}")
+            
+            
+    def check_valid_errors(self):
+        # Check errors is valid: Dict[str,str] (url or json)
+        if not isinstance(self.errors, dict):
+            raise TypeError(f"errors must be a dict. Got {type(self.errors)}")
+        for k,v in self.errors.items():
+            if not isinstance(k, str):
+                raise TypeError(f"errors keys must be strings. Got {type(k)}")
+            if not isinstance(v, str):
+                raise TypeError(f"errors values must be strings. Got {type(v)}")
+            
+            
+    def check_valid_queue(self):
+        if not isinstance(self.queue, abc.MutableSequence):
+            raise TypeError(f"queue must be a list. Got {type(self.queue)}")
+        for url in self.queue.copy():
+            if not isinstance(url, str):
+                raise TypeError(f"queue must be a list of strings. Got {type(url)}")
+            if not url.startswith("https://en.wikipedia.org/wiki/"):
+                # Remove invalid url and warn
+                warnings.warn(f"Invalid URL in queue: {url}. Removing from queue.")
+                self.queue.remove(url)
+    
+        
+
 class WikiCrawler:
     
     def __init__(
@@ -16,7 +107,9 @@ class WikiCrawler:
         request_session = None,
         queue:list=[],
         log_results_after_n_nodes_scanned:int=100,
-        num_workers:int=1
+        num_threads:int=None,
+        num_processes:int=None,
+        archived_crawler:ArhivedWikiCrawler=None,
     ) -> None:
         
         if not os.path.exists(pickle_dir):
@@ -35,10 +128,15 @@ class WikiCrawler:
         self.url_to_id = {}
         self.visited_urls = set()
         
-        self.graph = {} # {id0: [id1, id2, id3]}
-        self.nodes = {} # {id0: {"url": url, "data": data}}
-        
-        self.errors = {}
+        if archived_crawler is None:
+            self.graph = {} # {id0: [id1, id2, id3]}
+            self.nodes = {} # {id0: {"url": url, "data": data}}
+            self.errors = {}
+        else:
+            self.graph = archived_crawler.graph
+            self.nodes = archived_crawler.nodes
+            self.errors = archived_crawler.errors
+            queue = archived_crawler.queue
         
         # RAM Storage
         if not isinstance(queue, abc.MutableSequence):
@@ -59,8 +157,16 @@ class WikiCrawler:
         # Params
         self.starting_url = starting_url
         self.log_results_after_n_nodes_scanned = log_results_after_n_nodes_scanned
-        self.num_workers = num_workers
-
+        
+        if not (num_threads is None or isinstance(num_threads, int)):
+            raise TypeError(f"num_threads must be an int or None. Got {type(num_threads)}")
+        
+        if not (num_processes is None or isinstance(num_processes, int)):
+            raise TypeError(f"num_processes must be an int or None. Got {type(num_processes)}")
+        
+        self.num_threads = num_threads
+        self.num_processes = num_processes
+        
         # To keep track of time
         self.t = time.time()
         
@@ -145,7 +251,7 @@ class WikiCrawler:
             None
         """
         # Multiprocessing
-        with cf.ProcessPoolExecutor(max_workers=self.num_workers) as executor:
+        with cf.ProcessPoolExecutor(max_workers=self.num_processes) as executor:
             while len(self.nodes) < max_pages:
                 if not self.queue:
                     print("Waiting for processes to finish...")
@@ -154,13 +260,10 @@ class WikiCrawler:
                         break
 
                 # Using multiprocessing within the thread
-                with cf.ThreadPoolExecutor() as process_executor:
+                with cf.ThreadPoolExecutor(max_workers=self.num_threads) as process_executor:
                     url = self.queue.pop(0)
                     future = process_executor.submit(self._crawl_page, url)
                     future.add_done_callback(lambda _: self.log_results())
 
         # Pickle final results
         self.pickle_progress()
-
-        
-    
