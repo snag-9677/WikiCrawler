@@ -83,7 +83,7 @@ class ScrapePageRegex:
         # Find all links which start with wiki/
         regex = r'href="/wiki/([^:/"]+)"'
         l = self.find_in_html(regex, page)
-        constructed_links = [f"https://en.wikipedia.org/wiki/{link}" for link in set(l)]
+        constructed_links = [f"https://en.wikipedia.org/wiki/{link.split('#')[0]}" for link in set(l)]
         return constructed_links
     
     

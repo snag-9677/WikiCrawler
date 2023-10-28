@@ -8,7 +8,7 @@ import time
 from web_scrape import ScrapePageRegex as ScrapePage
 
 
-class ArhivedWikiCrawler:
+class ArchivedWikiCrawler:
     
     def __init__(
         self,
@@ -60,7 +60,7 @@ class WikiCrawler:
         log_results_after_n_nodes_scanned:int=100,
         num_threads:int=None,
         num_processes:int=None,
-        archived_crawler:ArhivedWikiCrawler=None,
+        archived_crawler:ArchivedWikiCrawler=None,
     ) -> None:
         
         if not os.path.exists(pickle_dir):
