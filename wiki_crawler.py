@@ -12,28 +12,24 @@ class ArhivedWikiCrawler:
     
     def __init__(
         self,
-        pickle_dir:str="wiki_pickle",
-        error_pkl_name:str="errors_0.pkl",
-        graph_pkl_name:str="graph_0.pkl",
-        nodes_pkl_name:str="nodes_0.pkl",
-        queue_pkl_name:str="queue_0.pkl",
+        pickle_file:str="wiki_pickle/0.pkl",
     ):
         
-        if not os.path.exists(pickle_dir):
-            raise FileNotFoundError(f"{pickle_dir} does not exist.")
+        if not os.path.exists(pickle_file):
+            raise FileNotFoundError(f"{pickle_file} does not exist.")
         
-        self.errors = self.open_and_load_pkl(f"{pickle_dir}/{error_pkl_name}")
-        self.check_valid_errors(self.errors)
+        file = self.open_and_load_pkl(pickle_file)
         
-        self.graph = self.open_and_load_pkl(f"{pickle_dir}/{graph_pkl_name}")
-        self.check_valid_graph(self.graph)
-        
-        self.nodes = self.open_and_load_pkl(f"{pickle_dir}/{nodes_pkl_name}")
-        self.check_valid_nodes(self.nodes)
-        
-        self.queue = self.open_and_load_pkl(f"{pickle_dir}/{queue_pkl_name}")
-        self.check_valid_queue(self.queue)
-        
+        l = ["graph", "nodes", "errors", "queue", "visited_urls", "url_to_id", "id_counter", "pickle_counter"]
+        missing_vals = []
+        for key in l:
+            try:
+                setattr(self, key, file[key])
+            except KeyError:
+                missing_vals.append(key)
+                
+        if missing_vals:
+            raise KeyError(f"Missing values in pickle file: {missing_vals}")
         
         
     def open_and_load_pkl(self, path):
@@ -50,51 +46,6 @@ class ArhivedWikiCrawler:
                 raise Exception(f"Error loading {path}. {E}")
         
         return file
-    
-    
-    def check_valid_graph(self):
-        # Check graph is valid: Dict[str,List]
-        if not isinstance(self.graph, dict):
-            raise TypeError(f"graph must be a dict. Got {type(self.graph)}")
-        for k,v in self.graph.items():
-            if not isinstance(k, str):
-                raise TypeError(f"graph keys must be strings. Got {type(k)}")
-            if not isinstance(v, list):
-                raise TypeError(f"graph values must be lists. Got {type(v)}")
-            
-    
-    def check_valid_nodes(self):
-        # Check nodes is valid: Dict[str,str] (url or json)
-        if not isinstance(self.nodes, dict):
-            raise TypeError(f"nodes must be a dict. Got {type(self.nodes)}")
-        for k,v in self.nodes.items():
-            if not isinstance(k, str):
-                raise TypeError(f"nodes keys must be strings. Got {type(k)}")
-            if not isinstance(v, str):
-                raise TypeError(f"nodes values must be sre (url or json). Got {type(v)}")
-            
-            
-    def check_valid_errors(self):
-        # Check errors is valid: Dict[str,str] (url or json)
-        if not isinstance(self.errors, dict):
-            raise TypeError(f"errors must be a dict. Got {type(self.errors)}")
-        for k,v in self.errors.items():
-            if not isinstance(k, str):
-                raise TypeError(f"errors keys must be strings. Got {type(k)}")
-            if not isinstance(v, str):
-                raise TypeError(f"errors values must be strings. Got {type(v)}")
-            
-            
-    def check_valid_queue(self):
-        if not isinstance(self.queue, abc.MutableSequence):
-            raise TypeError(f"queue must be a list. Got {type(self.queue)}")
-        for url in self.queue.copy():
-            if not isinstance(url, str):
-                raise TypeError(f"queue must be a list of strings. Got {type(url)}")
-            if not url.startswith("https://en.wikipedia.org/wiki/"):
-                # Remove invalid url and warn
-                warnings.warn(f"Invalid URL in queue: {url}. Removing from queue.")
-                self.queue.remove(url)
     
         
 
@@ -123,20 +74,25 @@ class WikiCrawler:
         # Web Scraping Object
         self.s = ScrapePage(request_session=request_session)
         
-        # Storage
-        self.id_counter = 0
-        self.url_to_id = {}
-        self.visited_urls = set()
-        
+        # Storage in Archived Crawler to continue crawling 
         if archived_crawler is None:
             self.graph = {} # {id0: [id1, id2, id3]}
             self.nodes = {} # {id0: {"url": url, "data": data}}
+            self.url_to_id = {}
+            self.visited_urls = set()
+            self.id_counter = 0
             self.errors = {}
         else:
             self.graph = archived_crawler.graph
             self.nodes = archived_crawler.nodes
             self.errors = archived_crawler.errors
+            self.visited_urls = archived_crawler.visited_urls
+            self.url_to_id = archived_crawler.url_to_id
+            self.id_counter = archived_crawler.id_counter
+            self.pickle_counter = archived_crawler.pickle_counter
+            
             queue = archived_crawler.queue
+                        
         
         # RAM Storage
         if not isinstance(queue, abc.MutableSequence):
@@ -215,10 +171,17 @@ class WikiCrawler:
         Pickle graph and nodes.
         """
         # Pickle graph and nodes
-        pickle.dump(self.graph, open(f"{self.pickle_dir}/graph_{self.pickle_counter}.pkl", "wb"))
-        pickle.dump(self.nodes, open(f"{self.pickle_dir}/nodes_{self.pickle_counter}.pkl", "wb"))
-        pickle.dump(self.errors, open(f"{self.pickle_dir}/errors_{self.pickle_counter}.pkl", "wb"))
-        pickle.dump(self.queue, open(f"{self.pickle_dir}/queue_{self.pickle_counter}.pkl", "wb"))
+        storage = {
+            "graph": self.graph,
+            "nodes": self.nodes,
+            "errors": self.errors,
+            "queue": self.queue,
+            "visited_urls": self.visited_urls,
+            "url_to_id": self.url_to_id,
+            "id_counter": self.id_counter,
+            "pickle_counter": self.pickle_counter,
+        }
+        pickle.dump(storage, open(f"{self.pickle_dir}/{self.pickle_counter}.pkl", "wb"))
         self.pickle_counter += 1
          
     
